@@ -118,7 +118,7 @@ Resources:
           <powershell>
             Set-ExecutionPolicy Unrestricted -Force
             ## install runner
-            iex (New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/grolston/cloudformation/Gitlab_Runner//Install-WindowsRunner.ps1')
+            iex (New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/grolston/cloudformation/master/Gitlab%20Runner/Install-WindowsRunner.ps1')
             Install-WindowsRunner -RunnerToken ${RunnerToken}  -RunnerUrl ${RunnerURL}  -RunnerName ${RunnerName}
           </powershell>
 Outputs:
