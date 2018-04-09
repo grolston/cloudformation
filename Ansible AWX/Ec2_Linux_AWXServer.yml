@@ -1,0 +1,113 @@
+---
+## created by grolston@outlook.com
+
+## creates EC2 with AWX installed. Note
+## you will need to update the installation
+## due to database for some reason going to temp
+## directory and upon reboot it deletes the 
+## database storage. Solution is to use RDS
+## after installation then reconfigure AWX
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation to setup Ansible Tower AWX Server'
+Parameters:
+  KeyPair: 
+    Description: key pair
+    Type: AWS::EC2::KeyPair::KeyName
+  Subnet:
+    Description: The subnet to launch the instance in to.
+    Type: AWS::EC2::Subnet::Id
+  SecurityGroup:
+    Description: List of AWS Security Groups. Select one or many.
+    Type: List<AWS::EC2::SecurityGroup::Id>
+  OperatingSystem:
+    Description: Operating System Desired
+    Type: String
+    Default: CentOS.7.3
+    AllowedValues:
+    - RHEL.7.2
+    - RHEL.7.3
+    - CentOS.7.3
+  InstanceType:
+    Description: Desired Instance Size
+    Type: String
+    Default: m4.large
+    AllowedValues:
+    - m4.large
+    - m3.large
+  Role:
+    Type: String
+    Description: Enter the role name (instane profile) to apply to the ec2 instance.
+  TagKeyName:
+    Description: 'Required: Enter the name of the key for the key-value. You''ll enter
+      the actual value of the tag next.'
+    Type: String
+    MinLength: 1
+  TagValue:
+    Description: 'Required: Enter the tag you''d like applied to the instance.'
+    Type: String
+    MinLength: 1
+  VolumeSize:
+    Description: Enter the number of GBs you want your volume to be. The minimum value
+      is 8 GBs
+    Type: Number
+    Default: 8
+    MinValue: 8
+Mappings:
+  OS:
+    RHEL.7.2:
+      amiID: ami-775e4f16
+    RHEL.7.3:
+      amiID: ami-38fd2558
+    CentOS.7.3:
+      amiID: ami-8e2c9aee
+Conditions:
+  HasKeyName: !Not [ !Equals ["", !Ref KeyName ] ]
+  HasRole: !Not [ !Equals ["", !Ref KeyName ] ]
+Resources:
+  LinuxEc2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [ OS, !Ref OperatingSystem, amiID ]
+      InstanceType: !Ref InstanceType
+      KeyName: !If [HasKeyName, !Ref KeyName, !Ref AWS::NoValue]
+      Monitoring: 'true'
+      IamInstanceProfile: !If [HasRole, !Ref Role, !Ref AWS::NoValue]
+      SourceDestCheck: 'true'
+      SubnetId: !Ref Subnet
+      SecurityGroupIds: !Ref SecurityGroup
+      BlockDeviceMappings:
+      - DeviceName: "/dev/sda1"
+        Ebs:
+          VolumeSize: !Ref VolumeSize
+      Tags:
+      - Key: !Ref TagKeyName
+        Value: !Ref TagValue
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum -y update
+          yum -y install epel-release
+          systemctl disable firewalld
+          systemctl stop firewalld
+          sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config
+          # need to continue process after reboot so make a file to execute script
+          echo "#!/bin/bash" > /root/SetupAWX.sh
+          echo "yum -y install git gettext ansible docker nodejs npm gcc-c++ bzip2" >> /root/SetupAWX.sh
+          echo "yum -y install python-docker-py" >> /root/SetupAWX.sh
+          echo "systemctl start docker && systemctl enable docker" >> /root/SetupAWX.sh
+          echo "git clone https://github.com/ansible/awx.git" >> /root/SetupAWX.sh
+          echo "cd awx/installer/" >> /root/SetupAWX.sh
+          echo "ansible-playbook -i inventory install.yml" >> /root/SetupAWX.sh
+          # set script to be executable
+          chmod +x /root/SetupAWX.sh
+          # create cron job file to load into cron
+          echo "@reboot  /root/SetupAWX.sh" > /root/AWXCron
+          # add cron job to root account
+          crontab -u root /root/AWXCron
+          reboot
+Outputs:
+  MyInstanceId:
+    Description: Resource ID of the newly created EC2 instance
+    Value:
+      Ref: LinuxEc2

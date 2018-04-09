@@ -1,0 +1,127 @@
+---
+## created by grolston@outlook.com
+
+## The following CloudFormation deploys a simple Windows EC2 that leverages Gitlab Runner.
+## Prior to install make sure you Gitlab project has shared runners disabled
+## and you identified the projects runner token to register the runner in this CloudFormation.
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation installation of Gitlab Runner on Windows EC2
+Parameters:
+  KeyPair: 
+    Description: key pair
+    Type: AWS::EC2::KeyPair::KeyName
+  RunnerURL:
+    Description: Specify the following URL during the Runner setup
+    Type: String
+    Default: 'https://gitlab.com/'
+  RunnerToken:
+    Description: Use the following registration token during setup
+    Type: String
+  RunnerName:
+    Description: Friendly name of the runner agent to be seen gitlab
+    Type: String
+  Role:
+    Type: String
+    Description: Enter the role name to apply to the ec2 instance.
+  Subnet:
+    Description: The subnet to launch the instance in to.
+    Type: AWS::EC2::Subnet::Id
+  SecurityGroup:
+    Description: Select one or many Security Groups to apply to EC2
+    Type: List<AWS::EC2::SecurityGroup::Id>
+  OperatingSystem:
+    Description: Operating System Desired
+    Type: String
+    Default: Windows2016Base
+    AllowedValues:
+    - Windows2016Base
+    - Windows2016FullContainer
+    - Windows2016Core
+    - Windows2016CoreContainer
+    - Windows2012R2Base
+    - Windows2012R2Core
+  InstanceType:
+    Description: Desired Instance Size
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+    - t2.nano
+    - t2.micro
+    - t2.small
+    - t2.medium
+    - t2.large
+    - t2.xlarge
+    - t2.2xlarge
+    - m3.large
+    - m4.large
+    - m4.xlarge
+    - m4.2xlarge
+    - m4.4xlarge
+    - m4.10xlarge
+    - m4.16xlarge
+    - m5.large
+  TagKeyName:
+    Description: 'Required: Enter the name of the key for the key-value. You''ll enter
+      the actual value of the tag next.'
+    Type: String
+    MinLength: 1
+    Default: 'Name'
+  TagKeyValue:
+    Description: 'Required: Enter the tag value to be applied to the instance.'
+    Type: String
+    MinLength: 1
+  VolumeSize:
+    Description: Enter the number of GBs you want your volume to be. The minimum value
+      is 8 GBs but if using anything ouside of core us 32 GBs or greater
+    Type: Number
+    Default: 32
+    MinValue: 8
+Mappings:
+  OS:
+    Windows2016Base:
+      amiID: ami-b2e756ca
+    Windows2016FullContainer:
+      amiID: ami-88e253f0
+    Windows2016Core:
+      amiID: ami-b8e554c0
+    Windows2016CoreContainer:
+      amiID: ami-a4c170dc
+    Windows2012R2Base:
+      amiID: ami-afe051d7
+    Windows2012R2Core:
+      amiID: ami-d0e051a8
+Conditions:
+  HasKeyName: !Not [ !Equals ["", !Ref KeyName ] ]
+  HasRole: !Not [ !Equals ["", !Ref KeyName ] ]
+Resources:
+  WinEc2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [ OS, !Ref OperatingSystem, amiID ]
+      InstanceType: !Ref InstanceType
+      KeyName: !If [HasKeyName, !Ref KeyName, !Ref AWS::NoValue]
+      Monitoring: 'true'
+      IamInstanceProfile: !If [HasRole, !Ref Role, !Ref AWS::NoValue]
+      SourceDestCheck: 'true'
+      SubnetId: !Ref Subnet
+      SecurityGroupIds: !Ref SecurityGroup
+      BlockDeviceMappings:
+      - DeviceName: "/dev/sda1"
+        Ebs:
+          VolumeSize: !Ref VolumeSize
+      Tags:
+      - Key: !Ref TagKeyName
+        Value: !Ref TagKeyValue
+      UserData:
+        Fn::Base64: !Sub |
+          <powershell>
+            Set-ExecutionPolicy Unrestricted -Force
+            ## install runner
+            iex (New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/grolston/cloudformation/Gitlab_Runner//Install-WindowsRunner.ps1')
+            Install-WindowsRunner -RunnerToken ${RunnerToken}  -RunnerUrl ${RunnerURL}  -RunnerName ${RunnerName}
+          </powershell>
+Outputs:
+  MyInstanceId:
+    Description: Resource ID of the newly created EC2 instance
+    Value: !Ref WinEc2

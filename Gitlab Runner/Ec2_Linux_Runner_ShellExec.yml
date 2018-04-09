@@ -1,0 +1,142 @@
+---
+## created by grolston@outlook.com
+
+## The following CloudFormation deploys a simple Linux EC2 that leverages Gitlab Runner.
+## Prior to install make sure you Gitlab project has shared runners disabled
+## and you identified the projects runner token to register the runner in this CloudFormation.
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation installation of Gitlab Runner on Linux EC2
+Parameters:
+  KeyPair: 
+    Description: key pair
+    Type: AWS::EC2::KeyPair::KeyName
+  RunnerURL:
+    Description: Specify the following URL during the Runner setup
+    Type: String
+    Default: 'https://gitlab.com/'
+  RunnerToken:
+    Description: Use the following registration token during setup
+    Type: String
+  RunnerName:
+    Description: Friendly name of the runner agent to be seen on gitlab web UI
+    Type: String
+  Role:
+    Type: String
+    Description: Enter the role name (instance profile) to apply to the ec2 instance
+  Subnet:
+    Description: The subnet to launch the instance in to.
+    Type: AWS::EC2::Subnet::Id
+  SecurityGroup:
+    Description: List of AWS Security Groups. Select one or many.
+    Type: List<AWS::EC2::SecurityGroup::Id>
+  OperatingSystem:
+    Description: Operating System Desired
+    Type: String
+    Default: AWSLinux
+    AllowedValues:
+    - AWSLinux
+    - RHEL.6.9
+    - RHEL.7.2
+    - RHEL.7.3
+    - CentOS.6.7
+    - CentOS.7.3
+  InstanceType:
+    Description: Desired Instance Size
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+    - t2.nano
+    - t2.micro
+    - t2.small
+    - t2.medium
+    - t2.large
+    - t2.xlarge
+    - t2.2xlarge
+    - m3.large
+    - m4.large
+    - m4.xlarge
+    - m4.2xlarge
+    - m4.4xlarge
+    - m4.10xlarge
+    - m4.16xlarge
+    - m5.large
+  TagKeyName:
+    Description: 'Required: Enter the name of the key for the key-value. You''ll enter the actual value of the tag next.'
+    Type: String
+    MinLength: 1
+  TagValue:
+    Description: 'Required: Enter the tag you''d like applied to the instance.'
+    Type: String
+    MinLength: 1
+  VolumeSize:
+    Description: Enter the number of GBs you want your volume to be. The minimum value
+      is 8 GBs
+    Type: Number
+    Default: 8
+    MinValue: 8
+Mappings:
+  OS:
+    AWSLinux:
+      amiID: ami-bf4193c7
+    RHEL.6.9:
+      amiID: ami-b657c8d6
+    RHEL.7.2:
+      amiID: ami-775e4f16
+    RHEL.7.3:
+      amiID: ami-38fd2558
+    CentOS.6.7:
+      amiID: ami-05cf2265
+    CentOS.7.3:
+      amiID: ami-8e2c9aee
+Conditions:
+  HasKeyName: !Not [ !Equals ["", !Ref KeyName ] ]
+  HasRole: !Not [ !Equals ["", !Ref KeyName ] ]
+Resources:
+  LinuxEc2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [ OS, !Ref OperatingSystem, amiID ]
+      InstanceType: !Ref InstanceType
+      KeyName: !If [HasKeyName, !Ref KeyName, !Ref AWS::NoValue]
+      Monitoring: 'true'
+      IamInstanceProfile: !If [HasRole, !Ref Role, !Ref AWS::NoValue]
+      SourceDestCheck: 'true'
+      SubnetId: !Ref Subnet
+      SecurityGroupIds: !Ref SecurityGroup
+      BlockDeviceMappings:
+      - DeviceName: "/dev/sda1"
+        Ebs:
+          VolumeSize: !Ref VolumeSize
+      Tags:
+      - Key: !Ref TagKeyName
+        Value: !Ref TagValue
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          setenforce permissive
+          cd /root/
+          yum install git -y
+          ## rpm for RedHat/CentOS/Fedora/AWSLinux
+          curl -L https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.rpm.sh | sudo bash
+          yum install gitlab-runner -y
+          useradd --comment 'GitLab Runner' --create-home gitlab-runner --shell /bin/bash
+          gitlab-runner install --user=gitlab-runner --working-directory=/home/gitlab-runner
+          gitlab-runner start
+          
+          ## vars ref: https://docs.gitlab.com/ce/ci/variables/README.html
+          export REGISTRATION_TOKEN=${RunnerToken}
+          export CI_SERVER_URL=${RunnerURL}
+          export RUNNER_TAG_LIST=bash
+          export RUNNER_NAME=${RunnerName}
+          export RUNNER_EXECUTOR=shell
+          export REGISTER_RUN_UNTAGGED=true
+          export RUNNER_REQUEST_CONCURRENCY=1
+          export REGISTER_NON_INTERACTIVE=true
+          gitlab-runner register
+          
+Outputs:
+  MyInstanceId:
+    Description: Resource ID of the newly created EC2 instance
+    Value:
+      Ref: LinuxEc2
